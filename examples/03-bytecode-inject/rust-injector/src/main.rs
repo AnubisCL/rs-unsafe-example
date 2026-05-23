@@ -450,18 +450,37 @@ fn main() {
         }
     };
 
-    let agent_jar = if Path::new(&agent_jar).is_absolute() {
+    // 解析为绝对路径
+    let agent_path = Path::new(&agent_jar);
+    let agent_jar = if agent_path.is_absolute() {
         agent_jar
+    } else if agent_path.exists() {
+        // 文件存在，使用 canonicalize 获取可靠的绝对路径
+        fs::canonicalize(agent_path)
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_else(|_| {
+                // fallback: 手动拼接 cwd
+                let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+                cwd.join(&agent_jar).to_string_lossy().into_owned()
+            })
     } else {
-        std::env::current_dir()
-            .map(|d| d.join(&agent_jar))
-            .unwrap_or_else(|_| Path::new(&agent_jar).to_path_buf())
-            .to_string_lossy()
-            .into_owned()
+        // 文件不存在于 cwd，尝试几个已知位置
+        let candidates = vec![
+            PathBuf::from("java-agent/target/inject-agent-1.0.0.jar"),
+            PathBuf::from("../java-agent/target/inject-agent-1.0.0.jar"),
+            PathBuf::from("../../java-agent/target/inject-agent-1.0.0.jar"),
+        ];
+        let found = candidates.into_iter().find(|p| p.exists());
+        match found {
+            Some(p) => fs::canonicalize(&p).map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_else(|_| p.to_string_lossy().into_owned()),
+            None => agent_jar, // 保持原始路径，下面会报错
+        }
     };
 
     if !Path::new(&agent_jar).exists() {
         eprintln!("[!] Agent JAR not found: {}", agent_jar);
+        eprintln!("[!] Current dir: {:?}", std::env::current_dir().unwrap_or_default());
         eprintln!("[!] Build it first: cd java-agent && mvn clean package");
         print_startup_hint(&agent_jar);
         std::process::exit(1);

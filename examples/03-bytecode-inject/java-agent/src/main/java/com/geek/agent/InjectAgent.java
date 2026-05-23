@@ -6,13 +6,6 @@ import java.security.ProtectionDomain;
 
 import org.objectweb.asm.*;
 
-/**
- * Java Agent: 在运行时修改 AuthService.login() 方法的字节码，
- * 使其无论输入什么密码都返回登录成功。
- *
- * 原始逻辑: 比对 MD5(password) 与存储的哈希值
- * 修改后:   忽略密码校验，直接为任意用户名生成 token
- */
 public class InjectAgent {
 
     private static final String TARGET_CLASS = "com/geek/auth/service/AuthService";
@@ -35,96 +28,105 @@ public class InjectAgent {
                 if (!TARGET_CLASS.equals(className)) return null;
 
                 System.out.println("[InjectAgent] Found target class: " + className);
-                System.out.println("[InjectAgent] Patching login() method to bypass password check...");
 
-                ClassReader cr = new ClassReader(classfileBuffer);
-                ClassWriter cw = new ClassWriter(cr, ClassWriter.COMPUTE_MAXS);
-
-                ClassVisitor cv = new ClassVisitor(Opcodes.ASM9, cw) {
-                    @Override
-                    public MethodVisitor visitMethod(int access, String name, String descriptor,
-                                                     String signature, String[] exceptions) {
-                        MethodVisitor mv = super.visitMethod(access, name, descriptor, signature, exceptions);
-                        if ("login".equals(name)
-                                && "(Ljava/lang/String;Ljava/lang/String;)Lcom/geek/auth/model/LoginResult;".equals(descriptor)) {
-                            System.out.println("[InjectAgent] Transforming login(Ljava/lang/String;Ljava/lang/String;)LoginResult");
-                            return new LoginMethodPatcher(mv);
-                        }
-                        return mv;
-                    }
-                };
-
-                cr.accept(cv, 0);
-
-                System.out.println("[InjectAgent] Patch applied! Any password will now be accepted.");
-                return cw.toByteArray();
+                try {
+                    byte[] result = doTransform(classfileBuffer);
+                    System.out.println("[InjectAgent] Patch applied successfully! (" + result.length + " bytes)");
+                    return result;
+                } catch (Exception e) {
+                    System.err.println("[InjectAgent] Patch FAILED: " + e.getMessage());
+                    e.printStackTrace();
+                    return null; // 返回 null 表示不修改
+                }
             }
-        }, true); // canRetransform = true
+        }, true);
 
-        // 对于已加载的类，触发 retransform
+        // 触发 retransform 已加载的类
         for (Class<?> clazz : inst.getAllLoadedClasses()) {
             if (inst.isModifiableClass(clazz) && clazz.getName().replace('.', '/').equals(TARGET_CLASS)) {
                 try {
                     inst.retransformClasses(clazz);
-                    System.out.println("[InjectAgent] Retransformed already-loaded class: " + clazz.getName());
+                    System.out.println("[InjectAgent] Retransformed: " + clazz.getName());
                 } catch (Exception e) {
-                    System.out.println("[InjectAgent] Retransform failed: " + e.getMessage());
+                    System.err.println("[InjectAgent] Retransform failed: " + e.getMessage());
+                    e.printStackTrace();
                 }
             }
         }
     }
 
+    private static byte[] doTransform(byte[] classfileBuffer) {
+        ClassReader cr = new ClassReader(classfileBuffer);
+        ClassWriter cw = new ClassWriter(cr, ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES);
+
+        ClassVisitor cv = new ClassVisitor(Opcodes.ASM9, cw) {
+            @Override
+            public MethodVisitor visitMethod(int access, String name, String descriptor,
+                                             String signature, String[] exceptions) {
+                MethodVisitor mv = super.visitMethod(access, name, descriptor, signature, exceptions);
+                if ("login".equals(name)
+                        && "(Ljava/lang/String;Ljava/lang/String;)Lcom/geek/auth/model/LoginResult;".equals(descriptor)) {
+                    System.out.println("[InjectAgent] Patching login()...");
+                    return new LoginMethodPatcher(mv, access, name, descriptor);
+                }
+                return mv;
+            }
+        };
+
+        // 使用 EXPAND_FRAMES 让 ClassReader 展开栈帧，配合 COMPUTE_FRAMES
+        cr.accept(cv, ClassReader.EXPAND_FRAMES);
+        return cw.toByteArray();
+    }
+
     /**
-     * 修改 login 方法: 清空原方法体，替换为直接生成 token 并返回成功的逻辑。
-     *
-     * 等价于:
+     * 替换 login 方法体为:
      *   public LoginResult login(String username, String password) {
-     *       String token = tokenService.createToken(username);
+     *       String token = this.tokenService.createToken(username);
      *       return LoginResult.ok(token);
      *   }
+     *
+     * 关键: 在 visitCode 中写入新指令，跳过所有原始指令，
+     * visitMaxs/visitEnd 透传给 ClassWriter (COMPUTE_MAXS 会自动重算)
      */
     static class LoginMethodPatcher extends MethodVisitor {
 
-        LoginMethodPatcher(MethodVisitor mv) {
+        LoginMethodPatcher(MethodVisitor mv, int access, String name, String desc) {
             super(Opcodes.ASM9, mv);
         }
 
         @Override
         public void visitCode() {
-            mv.visitCode();
+            super.visitCode();
 
-            // this.tokenService.createToken(username)
-            mv.visitVarInsn(Opcodes.ALOAD, 0);                    // this
+            // this.tokenService
+            mv.visitVarInsn(Opcodes.ALOAD, 0);
             mv.visitFieldInsn(Opcodes.GETFIELD,
                     "com/geek/auth/service/AuthService",
                     "tokenService",
                     "Lcom/geek/auth/service/TokenService;");
-            mv.visitVarInsn(Opcodes.ALOAD, 1);                    // username (arg0)
+
+            // .createToken(username)
+            mv.visitVarInsn(Opcodes.ALOAD, 1);
             mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL,
                     "com/geek/auth/service/TokenService",
                     "createToken",
                     "(Ljava/lang/String;)Ljava/lang/String;",
                     false);
-
-            // store token in local var
             mv.visitVarInsn(Opcodes.ASTORE, 3);
 
-            // LoginResult.ok(token)
-            mv.visitVarInsn(Opcodes.ALOAD, 3);                    // token
+            // LoginResult.ok(token) → ARETURN
+            mv.visitVarInsn(Opcodes.ALOAD, 3);
             mv.visitMethodInsn(Opcodes.INVOKESTATIC,
                     "com/geek/auth/model/LoginResult",
                     "ok",
                     "(Ljava/lang/String;)Lcom/geek/auth/model/LoginResult;",
                     false);
-
-            // return the LoginResult
             mv.visitInsn(Opcodes.ARETURN);
 
-            mv.visitMaxs(2, 4);
-            mv.visitEnd();
+            // 不在这里调用 visitMaxs / visitEnd — 让它们自然通过
         }
 
-        // 跳过原始方法的所有指令
+        // 跳过原始方法的所有指令 (不转发给 mv)
         @Override public void visitInsn(int opcode) {}
         @Override public void visitIntInsn(int opcode, int operand) {}
         @Override public void visitVarInsn(int opcode, int var) {}
@@ -139,6 +141,8 @@ public class InjectAgent {
         @Override public void visitMultiANewArrayInsn(String desc, int dims) {}
         @Override public void visitLineNumber(int line, Label start) {}
         @Override public void visitLocalVariable(String name, String desc, String signature, Label start, Label end, int index) {}
-        @Override public void visitMaxs(int maxStack, int maxLocals) {}
+
+        // visitMaxs 和 visitEnd 透传给 ClassWriter
+        // COMPUTE_MAXS / COMPUTE_FRAMES 会自动重算，忽略传入的参数
     }
 }
