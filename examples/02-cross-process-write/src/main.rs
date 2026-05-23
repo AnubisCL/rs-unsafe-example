@@ -10,13 +10,31 @@ const VM_PROT_READ: i32 = 1;
 const VM_PROT_WRITE: i32 = 2;
 
 /// 与 C 结构体 vm_region_basic_info_64 内存布局完全一致
-/// #[repr(C)] 保证字段顺序和对齐与 C 编译器相同
-#[repr(C)]
+///
+/// macOS SDK 中这个结构体被 #pragma pack(push, 4) 包裹，
+/// 即 4 字节对齐（非默认的 8 字节）。所以 u64 的 offset 字段
+/// 可以在非 8 对齐的位置（offset 20）。
+///
+/// 对应的 C 定义（来自 /usr/include/mach/vm_region.h）：
+///   struct vm_region_basic_info_64 {
+///       vm_prot_t               protection;     // int
+///       vm_prot_t               max_protection; // int
+///       vm_inherit_t            inheritance;    // int
+///       boolean_t               shared;         // int
+///       boolean_t               reserved;       // int  ← 容易漏掉！
+///       memory_object_offset_t  offset;         // uint64_t
+///       vm_behavior_t           behavior;       // int
+///       unsigned short          user_wired_count;
+///   };
+///
+/// 总大小 = 36 字节，info_count = 36/4 = 9
+#[repr(C, packed(4))]
 struct VmRegionBasicInfo64 {
     protection: i32,
     max_protection: i32,
     inheritance: i32,
-    shared: u32,
+    shared: i32,
+    reserved: i32, // ← SDK 有这个字段，不能漏
     offset: u64,
     behavior: i32,
     user_wired_count: u16,
@@ -159,9 +177,6 @@ fn main() {
 
     println!("\n--- 扫描虚拟内存 ---");
     println!("搜索目标: {} (字节模式: {:?})", target_value, needle);
-    println!("[debug] struct size={}, info_count={}",
-             std::mem::size_of::<VmRegionBasicInfo64>(),
-             std::mem::size_of::<VmRegionBasicInfo64>() / std::mem::size_of::<i32>());
 
     loop {
         let mut region_size: u64 = 0;
@@ -205,22 +220,6 @@ fn main() {
         };
 
         if kr != 0 {
-            if region_count == 0 {
-                eprintln!("[debug] mach_vm_region 首次调用失败! kr={}", kr);
-                // 用本进程自测 API 是否正常
-                let mut t_addr: u64 = 0;
-                let mut t_size: u64 = 0;
-                let mut t_info: VmRegionBasicInfo64 = unsafe { mem::zeroed() };
-                let mut t_cnt = mem::size_of::<VmRegionBasicInfo64>() as u32 / 4;
-                let mut t_obj: u32 = 0;
-                let self_kr = unsafe {
-                    mach_vm_region(self_task, &mut t_addr, &mut t_size,
-                        VM_REGION_BASIC_INFO_64, &mut t_info as *mut _ as *mut i32,
-                        &mut t_cnt, &mut t_obj)
-                };
-                eprintln!("[debug] 自测(本进程): kr={}, addr=0x{:X}, size=0x{:X}, prot={}",
-                          self_kr, t_addr, t_size, t_info.protection);
-            }
             break;
         }
         region_count += 1;
