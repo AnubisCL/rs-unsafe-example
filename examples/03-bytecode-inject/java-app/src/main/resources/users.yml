@@ -1,0 +1,7 @@
+users:
+  - username: admin
+    # MD5("admin123") = 0192023a7bbd73250516f069df18b500
+    password-md5: "0192023a7bbd73250516f069df18b500"
+  - username: guest
+    # MD5("guest456") = 084e0343a0486ff05530df6c705c8bb4
+    password-md5: "084e0343a0486ff05530df6c705c8bb4"

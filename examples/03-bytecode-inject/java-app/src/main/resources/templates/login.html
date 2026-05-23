@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Geek Auth - Login</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Courier New', monospace;
+            background: #0a0a0a;
+            color: #00ff00;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .terminal {
+            background: #111;
+            border: 1px solid #00ff00;
+            border-radius: 8px;
+            padding: 32px;
+            width: 420px;
+            box-shadow: 0 0 20px rgba(0, 255, 0, 0.2);
+        }
+        .terminal h1 {
+            text-align: center;
+            margin-bottom: 24px;
+            font-size: 18px;
+            text-shadow: 0 0 10px #00ff00;
+        }
+        .terminal h1::before { content: '> '; }
+        .terminal h1::after { content: ' _'; animation: blink 1s infinite; }
+        @keyframes blink { 50% { opacity: 0; } }
+        .field { margin-bottom: 16px; }
+        .field label {
+            display: block;
+            margin-bottom: 4px;
+            font-size: 12px;
+            color: #0a0;
+        }
+        .field label::before { content: '$ '; }
+        .field input {
+            width: 100%;
+            padding: 10px 12px;
+            background: #0a0a0a;
+            border: 1px solid #333;
+            color: #00ff00;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            border-radius: 4px;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+        .field input:focus { border-color: #00ff00; box-shadow: 0 0 5px rgba(0, 255, 0, 0.3); }
+        .btn {
+            width: 100%;
+            padding: 12px;
+            background: transparent;
+            border: 1px solid #00ff00;
+            color: #00ff00;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: all 0.3s;
+            margin-top: 8px;
+        }
+        .btn:hover { background: #00ff00; color: #0a0a0a; }
+        .btn::before { content: '[ '; }
+        .btn::after { content: ' ]'; }
+        .output {
+            margin-top: 16px;
+            padding: 12px;
+            background: #080808;
+            border: 1px solid #222;
+            border-radius: 4px;
+            font-size: 12px;
+            min-height: 60px;
+            white-space: pre-wrap;
+            word-break: break-all;
+            display: none;
+        }
+        .output.success { border-color: #0a0; color: #0f0; }
+        .output.error { border-color: #a00; color: #f44; }
+        .hint { margin-top: 16px; font-size: 11px; color: #444; text-align: center; }
+    </style>
+</head>
+<body>
+<div class="terminal">
+    <h1>GeekAuth v1.0</h1>
+    <div class="field">
+        <label>username</label>
+        <input type="text" id="username" placeholder="root" autocomplete="off"/>
+    </div>
+    <div class="field">
+        <label>password</label>
+        <input type="password" id="password" placeholder="********"/>
+    </div>
+    <button class="btn" onclick="doLogin()">authenticate</button>
+    <div class="output" id="output"></div>
+    <div class="hint">admin / admin123 | guest / guest456</div>
+</div>
+<script>
+    async function doLogin() {
+        const out = document.getElementById('output');
+        const username = document.getElementById('username').value;
+        const password = document.getElementById('password').value;
+        out.style.display = 'block';
+        out.className = 'output';
+        out.textContent = '> authenticating...';
+        try {
+            const body = new URLSearchParams({ username, password });
+            const res = await fetch('/api/login', { method: 'POST', body });
+            const data = await res.json();
+            if (data.success) {
+                out.className = 'output success';
+                out.textContent = '> ACCESS GRANTED\n' +
+                    '> token: ' + data.token + '\n' +
+                    '> Try: curl -H "Authorization: Bearer ' + data.token + '" http://localhost:8080/api/test';
+            } else {
+                out.className = 'output error';
+                out.textContent = '> ACCESS DENIED\n> ' + data.message;
+            }
+        } catch (e) {
+            out.className = 'output error';
+            out.textContent = '> ERROR\n> ' + e.message;
+        }
+    }
+    document.getElementById('password').addEventListener('keydown', e => {
+        if (e.key === 'Enter') doLogin();
+    });
+</script>
+</body>
+</html>

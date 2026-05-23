@@ -1,0 +1,7 @@
+server:
+  port: 8080
+
+auth:
+  token:
+    secret: "G33k-1nj3ct-2024-s3cr3t-k3y!"
+    expire-hours: 24
