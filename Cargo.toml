@@ -2,5 +2,7 @@
 members = [
     "examples/01-read-meminfo",
     "examples/02-cross-process-write",
+    "examples/03-bytecode-inject/rust-injector",
+    "examples/04-zerocopy-benchmark/rust-hasher",
 ]
 resolver = "2"
