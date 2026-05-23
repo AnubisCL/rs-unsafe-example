@@ -1,7 +1,6 @@
-[package]
-name = "rs-unsafe"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-libc = "0.2.186"
+[workspace]
+members = [
+    "examples/01-read-meminfo",
+    "examples/02-cross-process-write",
+]
+resolver = "2"
