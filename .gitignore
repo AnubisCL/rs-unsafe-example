@@ -3,4 +3,5 @@
 .claude/
 *.class
 examples/04-zerocopy-benchmark/data/
-examples/04-zerocopy-benchmark/java/out/
+**/out/
+**/data/

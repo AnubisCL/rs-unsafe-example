@@ -74,15 +74,15 @@ dependencies = [
 ]
 
 [[package]]
-name = "rust-hasher"
-version = "0.1.0"
-dependencies = [
- "rayon",
-]
-
-[[package]]
 name = "rust-injector"
 version = "1.0.0"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "rust-offheap"
+version = "0.1.0"
+dependencies = [
+ "rayon",
 ]
